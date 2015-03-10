@@ -154,7 +154,7 @@ int get_tray_width(struct tc_head *trayclients) {
     TAILQ_FOREACH_REVERSE(trayclient, trayclients, tc_head, tailq) {
         if (!trayclient->mapped)
             continue;
-        tray_width += icon_size + logical_px(config.tray_padding);
+        tray_width += trayclient->squares * (icon_size + logical_px(config.tray_padding));
     }
     if (tray_width > 0)
         tray_width += logical_px(tray_loff_px);
@@ -601,15 +601,17 @@ static void configure_trayclients(void) {
         TAILQ_FOREACH_REVERSE(trayclient, output->trayclients, tc_head, tailq) {
             if (!trayclient->mapped)
                 continue;
-            clients++;
+            clients += trayclient->squares;
 
-            DLOG("Configuring tray window %08x to x=%d\n",
-                 trayclient->win, output->rect.w - (clients * (icon_size + logical_px(config.tray_padding))));
-            uint32_t x = output->rect.w - (clients * (icon_size + logical_px(config.tray_padding)));
+            uint32_t values[2];
+            values[0] = output->rect.w - (clients * (icon_size + logical_px(config.tray_padding)));
+            values[1] = trayclient->squares * (icon_size + logical_px(config.tray_padding)) - logical_px(config.tray_padding);
+            DLOG("Configuring tray window %08x to x=%d, w=%d\n",
+                 trayclient->win, values[0], values[1]);
             xcb_configure_window(xcb_connection,
                                  trayclient->win,
-                                 XCB_CONFIG_WINDOW_X,
-                                 &x);
+                                 XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_WIDTH,
+                                 values);
         }
     }
 }
@@ -712,6 +714,7 @@ static void handle_client_message(xcb_client_message_event_t *event) {
                 ELOG("No output found\n");
                 return;
             }
+
             xcb_reparent_window(xcb_connection,
                                 client,
                                 output->bar,
@@ -759,6 +762,7 @@ static void handle_client_message(xcb_client_message_event_t *event) {
             tc->win = client;
             tc->xe_version = xe_version;
             tc->mapped = false;
+            tc->squares = 1;
             TAILQ_INSERT_TAIL(output->trayclients, tc, tailq);
 
             if (map_it) {
@@ -948,19 +952,37 @@ static void handle_configure_request(xcb_configure_request_event_t *event) {
         TAILQ_FOREACH_REVERSE(trayclient, output->trayclients, tc_head, tailq) {
             if (!trayclient->mapped)
                 continue;
-            clients++;
+            clients += trayclient->squares;
 
             if (trayclient->win != event->window)
                 continue;
 
+            // non-square icons
+            int squares = MAX((event->width * icon_size / event->height + logical_px(config.tray_padding)) /
+                                  (icon_size + logical_px(config.tray_padding)),
+                              1);
+            bool needsresize = squares != trayclient->squares;
+            if (needsresize) {
+                DLOG("ConfigureRequest resizing x=%d, y=%d, w=%d, h=%d, fh=%d -> sq=%d\n",
+                     event->x, event->y, event->width, event->height, icon_size, squares);
+                clients = clients + squares - trayclient->squares;
+                trayclient->squares = squares;
+            }
+
             xcb_rectangle_t rect;
             rect.x = output->rect.w - (clients * (icon_size + logical_px(config.tray_padding)));
             rect.y = logical_px(config.tray_padding);
-            rect.width = icon_size;
+            rect.width = trayclient->squares * (icon_size + logical_px(config.tray_padding)) - logical_px(config.tray_padding);
             rect.height = icon_size;
 
             DLOG("This is a tray window. x = %d\n", rect.x);
             fake_configure_notify(xcb_connection, rect, event->window, 0);
+
+            if (needsresize) {
+                configure_trayclients();
+                draw_bars(false);
+            }
+
             return;
         }
     }

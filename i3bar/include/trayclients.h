@@ -17,6 +17,7 @@ struct trayclient {
     xcb_window_t win; /* The window ID of the tray client */
     bool mapped;      /* Whether this window is mapped */
     int xe_version;   /* The XEMBED version supported by the client */
+    int squares;      /* number of squares needed */
 
     TAILQ_ENTRY(trayclient) tailq; /* Pointer for the TAILQ-Macro */
 };

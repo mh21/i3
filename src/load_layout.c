@@ -447,6 +447,23 @@ static int json_determine_content_string(void *ctx, const unsigned char *val, si
     return 0;
 }
 
+/* Remove shebang line from buffer.
+ * If the buffer starts with a shebang line, a pointer to the line feed
+ * immediately following it is returned, and the passed buffer length is
+ * decremented accordingly. Otherwise, a pointer the beginning of the buffer is
+ * returned, and the length is not changed.
+ */
+static char *json_skip_shebang(char *buf, int *n) {
+    if (*n > 2 && buf[0] == '#' && buf[1] == '!') {
+        char *json = memchr(buf, '\n', *n);
+        if (json) {
+            *n -= json - buf;
+            return json;
+        }
+    }
+    return buf;
+}
+
 /* Parses the given JSON file until it encounters the first “type” property to
  * determine whether the file contains workspaces or regular containers, which
  * is important to know when deciding where (and how) to append the contents.
@@ -471,6 +488,7 @@ json_content_t json_determine_content(const char *filename) {
         return JSON_CONTENT_UNKNOWN;
     }
     DLOG("read %d bytes\n", n);
+    char *json = json_skip_shebang(buf, &n);
     // We default to JSON_CONTENT_CON because it is legal to not include
     // “"type": "con"” in the JSON files for better readability.
     content_result = JSON_CONTENT_CON;
@@ -493,9 +511,9 @@ json_content_t json_determine_content(const char *filename) {
     yajl_config(hand, yajl_allow_multiple_values, true);
     yajl_status stat;
     setlocale(LC_NUMERIC, "C");
-    stat = yajl_parse(hand, (const unsigned char *)buf, n);
+    stat = yajl_parse(hand, (const unsigned char *)json, n);
     if (stat != yajl_status_ok && stat != yajl_status_client_canceled) {
-        unsigned char *str = yajl_get_error(hand, 1, (const unsigned char *)buf, n);
+        unsigned char *str = yajl_get_error(hand, 1, (const unsigned char *)json, n);
         ELOG("JSON parsing error: %s\n", str);
         yajl_free_error(hand, str);
     }
@@ -528,6 +546,7 @@ void tree_append_json(Con *con, const char *filename, char **errormsg) {
         return;
     }
     DLOG("read %d bytes\n", n);
+    char *json = json_skip_shebang(buf, &n);
     yajl_gen g;
     yajl_handle hand;
     static yajl_callbacks callbacks = {
@@ -556,9 +575,9 @@ void tree_append_json(Con *con, const char *filename, char **errormsg) {
     parsing_geometry = false;
     parsing_focus = false;
     setlocale(LC_NUMERIC, "C");
-    stat = yajl_parse(hand, (const unsigned char *)buf, n);
+    stat = yajl_parse(hand, (const unsigned char *)json, n);
     if (stat != yajl_status_ok) {
-        unsigned char *str = yajl_get_error(hand, 1, (const unsigned char *)buf, n);
+        unsigned char *str = yajl_get_error(hand, 1, (const unsigned char *)json, n);
         ELOG("JSON parsing error: %s\n", str);
         if (errormsg != NULL)
             *errormsg = sstrdup((const char *)str);

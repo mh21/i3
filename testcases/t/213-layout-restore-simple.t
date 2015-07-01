@@ -64,6 +64,40 @@ is(@{$content[0]->{nodes}}, 2, 'node has two children');
 close($fh);
 
 ################################################################################
+# simple vsplit layout with a shebang line
+################################################################################
+
+$ws = fresh_workspace;
+
+@content = @{get_ws_content($ws)};
+is(@content, 0, 'no nodes on the new workspace yet');
+
+($fh, $filename) = tempfile(UNLINK => 1);
+print $fh <<EOT;
+#!/usr/bin/i3-msg append_layout
+{
+    "layout": "splitv",
+    "nodes": [
+        {
+        },
+        {
+        }
+    ]
+}
+EOT
+$fh->flush;
+cmd "append_layout $filename";
+
+does_i3_live;
+
+@content = @{get_ws_content($ws)};
+is(@content, 1, 'one node on the workspace now');
+is($content[0]->{layout}, 'splitv', 'node has splitv layout');
+is(@{$content[0]->{nodes}}, 2, 'node has two children');
+
+close($fh);
+
+################################################################################
 # two simple vsplit containers in the same file
 ################################################################################
 
